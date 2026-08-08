@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Node
+node_modules/
+.next/
+out/
+
+# Environment / secrets (keep examples tracked)
+.env
+.env.*
+!.env.example
+!**/.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_rsa.*
+credentials.json
+service-account*.json
+secrets/
+.secrets/
+
+# Data & local runtime
+backend/data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Model / Hugging Face caches
+**/hf-cache/
+**/.cache/
+huggingface/
+transformers_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Docker volumes / local dumps
+qdrant_data/
+redis_data/
+*.log
+logs/
