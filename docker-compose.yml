@@ -1,0 +1,134 @@
+services:
+  # ── Qdrant Vector Database ─────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:v1.13.2
+    container_name: personalai-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__SERVICE__GRPC_PORT: 6334
+    healthcheck:
+      # Qdrant image has no curl/wget; use bash TCP check.
+      test: ["CMD-SHELL", "bash -c 'cat < /dev/null > /dev/tcp/127.0.0.1/6333' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # ── Redis (cache + Celery broker) ──────────────────────────────────
+  redis:
+    image: redis:7.4-alpine
+    container_name: personalai-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Backend API (FastAPI) ──────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: personalaiassist-backend
+    container_name: personalai-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - backend_data:/app/data
+      # Separate volume so HF model cache I/O does not fight SQLite on the same disk.
+      - hf_cache:/app/data/hf-cache
+    env_file:
+      - .env
+    environment:
+      QDRANT_HOST: qdrant
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      DATABASE_URL: sqlite+aiosqlite:///data/app.db
+      HF_HOME: /app/data/hf-cache
+      TRANSFORMERS_CACHE: /app/data/hf-cache
+      SENTENCE_TRANSFORMERS_HOME: /app/data/hf-cache
+      # Explicit OAuth passthrough (also loaded via env_file)
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      OAUTH_REDIRECT_BASE_URL: ${OAUTH_REDIRECT_BASE_URL:-http://localhost:8000}
+      FRONTEND_OAUTH_SUCCESS_URL: ${FRONTEND_OAUTH_SUCCESS_URL:-http://localhost:3000/auth/callback}
+    # Single worker – SQLite cannot safely share writes across multiple uvicorn processes.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/api/v1/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  # ── Celery Worker (reuses backend image – avoids building/exporting twice)
+  worker:
+    image: personalaiassist-backend
+    container_name: personalai-worker
+    command: ["celery", "-A", "celery_app.celery", "worker", "--loglevel=info", "--concurrency=2"]
+    volumes:
+      - backend_data:/app/data
+      - hf_cache:/app/data/hf-cache
+    env_file:
+      - .env
+    environment:
+      QDRANT_HOST: qdrant
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+      DATABASE_URL: sqlite+aiosqlite:///data/app.db
+      HF_HOME: /app/data/hf-cache
+      TRANSFORMERS_CACHE: /app/data/hf-cache
+      SENTENCE_TRANSFORMERS_HOME: /app/data/hf-cache
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      OAUTH_REDIRECT_BASE_URL: ${OAUTH_REDIRECT_BASE_URL:-http://localhost:8000}
+      FRONTEND_OAUTH_SUCCESS_URL: ${FRONTEND_OAUTH_SUCCESS_URL:-http://localhost:3000/auth/callback}
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Frontend (Next.js) ─────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+    image: personalaiassist-frontend
+    container_name: personalai-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  qdrant_data:
+  redis_data:
+  backend_data:
+  hf_cache:
