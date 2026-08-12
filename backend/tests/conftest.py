@@ -37,6 +37,23 @@ def relax_registration_email_validation(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def reset_rate_limiters():
+    """Use a fresh in-memory limiter in tests (ignore shared Redis counters)."""
+    from app.security.rate_limiter import auth_rate_limiter, rate_limiter
+
+    for limiter in (rate_limiter, auth_rate_limiter):
+        limiter._memory.clear()
+        # Prevent reconnecting to a shared Redis instance during the suite.
+        limiter._redis = None
+        limiter._redis_checked = True
+    yield
+    for limiter in (rate_limiter, auth_rate_limiter):
+        limiter._memory.clear()
+        limiter._redis = None
+        limiter._redis_checked = True
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def setup_db():
     async with engine_test.begin() as conn:

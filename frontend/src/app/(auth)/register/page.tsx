@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
 import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
+import { fetchAuthProviders } from "@/lib/authProviders";
 import { FileText, Loader2 } from "lucide-react";
 
 export default function RegisterPage() {
@@ -13,8 +14,26 @@ export default function RegisterPage() {
   const [fullName, setFullName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [checking, setChecking] = useState(true);
+  const [registrationEnabled, setRegistrationEnabled] = useState(true);
   const { register } = useAuth();
   const router = useRouter();
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchAuthProviders()
+      .then((providers) => {
+        if (cancelled) return;
+        setRegistrationEnabled(providers.registration_enabled);
+        setChecking(false);
+      })
+      .catch(() => {
+        if (!cancelled) setChecking(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -29,6 +48,31 @@ export default function RegisterPage() {
       setLoading(false);
     }
   };
+
+  if (checking) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-4">
+        <Loader2 className="h-6 w-6 animate-spin text-[hsl(var(--muted-foreground))]" />
+      </div>
+    );
+  }
+
+  if (!registrationEnabled) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-4">
+        <div className="w-full max-w-sm space-y-4 text-center">
+          <FileText className="mx-auto h-10 w-10 text-blue-500" />
+          <h1 className="text-xl font-semibold">Registration closed</h1>
+          <p className="text-sm text-[hsl(var(--muted-foreground))]">
+            New accounts are disabled on this server. Sign in if you already have an account.
+          </p>
+          <Link href="/login" className="inline-block text-sm text-blue-500 hover:underline">
+            Back to Sign In
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4">

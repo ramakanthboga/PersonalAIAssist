@@ -53,6 +53,12 @@ _KNOWN_SAFE_MESSAGES: tuple[tuple[re.Pattern[str], str], ...] = (
         "Use cloud mode (CURSOR_CLOUD_REPO) or another LLM provider.",
     ),
     (
+        re.compile(r"resource_exhausted|RateLimitError", re.I),
+        "Cursor's usage limit for this account was reached. Wait a few minutes and "
+        "try again, check your usage/billing in the Cursor dashboard, or switch "
+        "LLM_PROVIDER to openai/anthropic/gemini/openrouter in .env in the meantime.",
+    ),
+    (
         re.compile(r"rate limit|429", re.I),
         "The AI service rate limit was reached. Please wait a moment and try again.",
     ),

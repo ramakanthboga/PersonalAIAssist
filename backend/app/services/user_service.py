@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.exceptions import AuthenticationError, NotFoundError, ValidationError
 from app.core.security import hash_password, verify_password
 from app.database.models import User
@@ -15,6 +16,13 @@ class UserService:
     def __init__(self, db: AsyncSession) -> None:
         self._repo = UserRepository(db)
 
+    def _ensure_registration_allowed(self, email: str) -> None:
+        settings = get_settings()
+        if not settings.is_registration_allowed_for(email):
+            if not settings.ALLOW_REGISTRATION:
+                raise ValidationError("Registration is disabled")
+            raise ValidationError("This email is not allowed to register")
+
     async def register(
         self,
         email: str,
@@ -22,6 +30,7 @@ class UserService:
         full_name: str | None = None,
     ) -> User:
         normalized = validate_registration_email(email)
+        self._ensure_registration_allowed(normalized)
         existing = await self._repo.get_by_email(normalized)
         if existing is not None:
             raise ValidationError(f"Email '{normalized}' is already registered")
@@ -84,14 +93,15 @@ class UserService:
         if existing is not None:
             if not existing.is_active:
                 raise AuthenticationError("Account is deactivated")
-            # Auto-link verified Google identity to the existing account
-            return await self._repo.update(
-                existing,
-                oauth_provider="google",
-                oauth_sub=oauth_sub,
-                full_name=existing.full_name or full_name,
+            # Never auto-link Google to an existing password/other account.
+            # Auto-link enabled account takeover: register victim email → victim
+            # later signs in with Google and lands on the attacker's account.
+            raise ValidationError(
+                "An account with this email already exists. "
+                "Sign in with your password instead of Google."
             )
 
+        self._ensure_registration_allowed(normalized)
         return await self._repo.create(
             email=normalized,
             hashed_password=None,

@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
 import GoogleSignInButton from "@/components/auth/GoogleSignInButton";
+import { fetchAuthProviders } from "@/lib/authProviders";
 import { FileText, Loader2 } from "lucide-react";
 
 export default function LoginPage() {
@@ -12,8 +13,23 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [registrationEnabled, setRegistrationEnabled] = useState(true);
   const { login } = useAuth();
   const router = useRouter();
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchAuthProviders()
+      .then((providers) => {
+        if (!cancelled) setRegistrationEnabled(providers.registration_enabled);
+      })
+      .catch(() => {
+        /* keep register link visible if providers probe fails */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,12 +105,14 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="text-center text-sm text-[hsl(var(--muted-foreground))]">
-          Don&apos;t have an account?{" "}
-          <Link href="/register" className="text-blue-500 hover:underline">
-            Register
-          </Link>
-        </p>
+        {registrationEnabled && (
+          <p className="text-center text-sm text-[hsl(var(--muted-foreground))]">
+            Don&apos;t have an account?{" "}
+            <Link href="/register" className="text-blue-500 hover:underline">
+              Register
+            </Link>
+          </p>
+        )}
       </div>
     </div>
   );
