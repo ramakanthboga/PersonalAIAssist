@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_user
+from app.api.dependencies import get_rate_limited_user
 from app.core.config import get_settings
 from app.core.logging import get_logger
 from app.database.models import User
@@ -55,12 +55,32 @@ def _document_to_response(doc) -> DocumentResponse:
 
 router = APIRouter(prefix="/documents")
 
+_UPLOAD_READ_CHUNK = 1024 * 1024  # 1 MiB
+
+
+async def _read_upload_capped(file: UploadFile, max_bytes: int) -> bytes:
+    """Read upload in chunks and abort early if it exceeds the size cap."""
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(_UPLOAD_READ_CHUNK)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File exceeds maximum size of {max_bytes // (1024 * 1024)} MB",
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
 
 @router.post("/upload", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(
     file: UploadFile,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_rate_limited_user),
 ):
     settings = get_settings()
 
@@ -70,7 +90,7 @@ async def upload_document(
             detail="No filename provided",
         )
 
-    content = await file.read()
+    content = await _read_upload_capped(file, settings.max_upload_bytes)
     try:
         original_filename = validate_upload(file.filename, content)
     except FileValidationError as exc:
@@ -113,7 +133,7 @@ async def list_documents(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_rate_limited_user),
 ):
     repo = DocumentRepository(db)
     documents = await repo.list_by_user(
@@ -139,7 +159,7 @@ class ClearAllResponse(BaseModel):
 @router.delete("/clear", response_model=ClearAllResponse)
 async def clear_all_documents(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_rate_limited_user),
 ):
     """Remove all of the user's documents, vectors, uploaded files, and chat history.
 
@@ -199,7 +219,7 @@ async def clear_all_documents(
 async def get_document(
     document_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_rate_limited_user),
 ):
     repo = DocumentRepository(db)
     document = await repo.get_by_id(document_id, user_id=current_user.id)
@@ -215,7 +235,7 @@ async def get_document(
 async def delete_document(
     document_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_rate_limited_user),
 ):
     settings = get_settings()
     repo = DocumentRepository(db)
@@ -251,7 +271,7 @@ async def delete_document(
 
 
 @router.post("/reindex")
-async def reindex_documents(current_user: User = Depends(get_current_user)):
+async def reindex_documents(current_user: User = Depends(get_rate_limited_user)):
     from app.ingestion.tasks import reindex_user_documents
     task = reindex_user_documents.delay(current_user.id)
     return {"status": "queued", "task_id": task.id}
@@ -261,7 +281,7 @@ async def reindex_documents(current_user: User = Depends(get_current_user)):
 async def get_ingestion_status(
     document_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_rate_limited_user),
 ):
     """Get the ingestion status and progress of a document."""
     repo = DocumentRepository(db)

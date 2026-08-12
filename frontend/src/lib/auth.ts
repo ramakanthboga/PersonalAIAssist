@@ -1,7 +1,7 @@
+import { API_BASE } from "./apiBase";
+
 const ACCESS_TOKEN_KEY = "pai_access_token";
 const REFRESH_TOKEN_KEY = "pai_refresh_token";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
 
 export function getAccessToken(): string | null {
   if (typeof window === "undefined") return null;

@@ -23,6 +23,7 @@ from app.core.logging import get_logger
 from app.core.security import create_access_token, create_refresh_token, decode_token
 from app.database.models import User
 from app.database.session import get_db
+from app.security.rate_limiter import check_auth_rate_limit
 from app.services.user_service import UserService
 
 logger = get_logger(__name__)
@@ -73,7 +74,12 @@ def _oauth_success_redirect(access_token: str, refresh_token: str) -> RedirectRe
     return RedirectResponse(url=f"{base}#{fragment}", status_code=status.HTTP_302_FOUND)
 
 
-@router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register",
+    response_model=TokenResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(check_auth_rate_limit)],
+)
 async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     try:
         svc = UserService(db)
@@ -91,7 +97,7 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     )
 
 
-@router.post("/login", response_model=TokenResponse)
+@router.post("/login", response_model=TokenResponse, dependencies=[Depends(check_auth_rate_limit)])
 async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     try:
         svc = UserService(db)
@@ -105,7 +111,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     )
 
 
-@router.get("/google/login")
+@router.get("/google/login", dependencies=[Depends(check_auth_rate_limit)])
 async def google_login(request: Request):
     """Start Google OAuth — redirects the browser to Google consent."""
     if not google_oauth_configured():
@@ -124,7 +130,7 @@ async def google_login(request: Request):
     )
 
 
-@router.get("/google/callback")
+@router.get("/google/callback", dependencies=[Depends(check_auth_rate_limit)])
 async def google_callback(request: Request, db: AsyncSession = Depends(get_db)):
     """Google redirects here; issue app JWTs and send the user to the frontend."""
     if not google_oauth_configured():
@@ -176,11 +182,16 @@ async def google_callback(request: Request, db: AsyncSession = Depends(get_db)):
 
 @router.get("/providers")
 async def list_auth_providers():
-    """Frontend can hide Google button when OAuth is not configured."""
-    return {"google": google_oauth_configured()}
+    """Frontend can hide Google / Register when not available."""
+    settings = get_settings()
+    return {
+        "google": google_oauth_configured(),
+        "registration_enabled": settings.ALLOW_REGISTRATION,
+        "registration_allowlist_active": bool(settings.REGISTRATION_ALLOWED_EMAILS),
+    }
 
 
-@router.post("/refresh", response_model=TokenResponse)
+@router.post("/refresh", response_model=TokenResponse, dependencies=[Depends(check_auth_rate_limit)])
 async def refresh_token(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     try:
         payload = decode_token(body.refresh_token)
@@ -207,6 +218,12 @@ async def refresh_token(body: RefreshRequest, db: AsyncSession = Depends(get_db)
         )
     except AppError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.message)
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive",
+        )
 
     return TokenResponse(
         access_token=create_access_token(user.id),

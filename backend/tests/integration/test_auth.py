@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import pytest
-import pytest_asyncio
 from httpx import AsyncClient
+
+from app.core.config import get_settings
 
 
 @pytest.mark.asyncio
@@ -19,6 +20,23 @@ class TestAuthEndpoints:
         assert "access_token" in data
         assert "refresh_token" in data
         assert data["token_type"] == "bearer"
+
+    async def test_register_disabled(self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch):
+        settings = get_settings()
+        monkeypatch.setattr(settings, "ALLOW_REGISTRATION", False)
+        resp = await client.post(
+            "/api/v1/auth/register",
+            json={"email": "blocked@example.com", "password": "securepass123"},
+        )
+        assert resp.status_code == 422
+        assert "disabled" in resp.json()["detail"].lower()
+
+    async def test_auth_providers_flags(self, client: AsyncClient):
+        resp = await client.get("/api/v1/auth/providers")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "google" in data
+        assert "registration_enabled" in data
 
     async def test_register_duplicate(self, client: AsyncClient):
         await client.post(

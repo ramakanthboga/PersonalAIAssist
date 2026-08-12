@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480  # 8h – long RAG/Cursor replies outlast 15m tokens
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     ALGORITHM: str = "HS256"
+    # Open signup is fine for local/dev; disable (or allowlist) before public exposure.
+    ALLOW_REGISTRATION: bool = True
+    # If non-empty, only these emails may register (password or first-time Google).
+    REGISTRATION_ALLOWED_EMAILS: Annotated[list[str], NoDecode] = []
 
     # ── Google OAuth (sign-in) — separate from GOOGLE_API_KEY (Gemini) ──
     GOOGLE_CLIENT_ID: str | None = None
@@ -165,13 +169,14 @@ class Settings(BaseSettings):
 
     # ── Rate Limiting ────────────────────────────────────────────────────
     RATE_LIMIT_PER_MINUTE: int = 30
+    AUTH_RATE_LIMIT_PER_MINUTE: int = 10
 
     # ── Validators ───────────────────────────────────────────────────────
     @field_validator("ALLOWED_ORIGINS", mode="before")
     @classmethod
     def parse_origins(cls, v: Any) -> list[str]:
         if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",")]
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
         return v
 
     @field_validator("ALLOWED_EXTENSIONS", mode="before")
@@ -181,6 +186,17 @@ class Settings(BaseSettings):
             return [ext.strip() for ext in v.split(",")]
         return v
 
+    @field_validator("REGISTRATION_ALLOWED_EMAILS", mode="before")
+    @classmethod
+    def parse_registration_emails(cls, v: Any) -> list[str]:
+        if v is None or v == "":
+            return []
+        if isinstance(v, str):
+            return [email.strip().lower() for email in v.split(",") if email.strip()]
+        if isinstance(v, list):
+            return [str(email).strip().lower() for email in v if str(email).strip()]
+        return v
+
     @property
     def max_upload_bytes(self) -> int:
         return self.MAX_UPLOAD_SIZE_MB * 1024 * 1024
@@ -188,6 +204,19 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT == Environment.PRODUCTION
+
+    @property
+    def expose_api_docs(self) -> bool:
+        """Swagger/ReDoc/OpenAPI only in local development — never when public."""
+        return self.ENVIRONMENT == Environment.DEVELOPMENT
+
+    def is_registration_allowed_for(self, email: str) -> bool:
+        if not self.ALLOW_REGISTRATION:
+            return False
+        allowlist = self.REGISTRATION_ALLOWED_EMAILS
+        if not allowlist:
+            return True
+        return email.strip().lower() in allowlist
 
 
 @lru_cache

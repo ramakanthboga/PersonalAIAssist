@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dependencies import get_current_user
+from app.api.dependencies import get_rate_limited_user
 from app.core.config import LLMProviderName, get_settings
 from app.core.exceptions import AppError
 from app.core.logging import get_logger
@@ -116,7 +116,7 @@ class MessageOut(BaseModel):
 async def send_message(
     body: ChatRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_rate_limited_user),
 ):
     chat_svc = ChatService(db)
 
@@ -290,7 +290,7 @@ async def list_conversations(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_rate_limited_user),
 ):
     chat_svc = ChatService(db)
     conversations = await chat_svc.list_conversations(current_user.id, limit=limit, offset=offset)
@@ -310,7 +310,7 @@ async def get_conversation_messages(
     conversation_id: str,
     limit: int = Query(default=100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_rate_limited_user),
 ):
     chat_svc = ChatService(db)
     try:
@@ -334,7 +334,7 @@ async def get_conversation_messages(
 async def delete_conversation(
     conversation_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_rate_limited_user),
 ):
     chat_svc = ChatService(db)
     try:
@@ -344,22 +344,11 @@ async def delete_conversation(
 
 
 @router.get("/providers")
-async def list_providers():
-    """List available LLM providers and which ones have API keys configured."""
+async def list_providers(current_user: User = Depends(get_rate_limited_user)):
+    """Return the active LLM provider only — do not reveal which API keys exist."""
     settings = get_settings()
-    providers = []
-    key_map = {
-        "cursor": settings.CURSOR_API_KEY,
-        "openai": settings.OPENAI_API_KEY,
-        "anthropic": settings.ANTHROPIC_API_KEY,
-        "gemini": settings.GOOGLE_API_KEY,
-        "openrouter": settings.OPENROUTER_API_KEY,
+    _ = current_user
+    return {
+        "active": settings.LLM_PROVIDER.value,
+        "model": settings.LLM_MODEL,
     }
-    for name, key in key_map.items():
-        providers.append({
-            "id": name,
-            "name": name.title(),
-            "configured": bool(key),
-            "active": name == settings.LLM_PROVIDER.value,
-        })
-    return {"providers": providers, "active": settings.LLM_PROVIDER.value}

@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback } from "react";
 import { getAccessToken, refreshAccessToken, clearTokens } from "@/lib/auth";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+import { API_BASE } from "@/lib/apiBase";
 
 /** Drop stack traces / internal paths if a bad error ever reaches the client. */
 function safeClientError(message: string): string {
