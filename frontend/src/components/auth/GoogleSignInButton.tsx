@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { clearTokens } from "@/lib/auth";
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1";
+import { API_BASE } from "@/lib/apiBase";
 
 interface GoogleSignInButtonProps {
   label?: string;
@@ -36,7 +35,7 @@ export default function GoogleSignInButton({
         }
       } catch {
         if (!cancelled) {
-          setHint("Cannot reach the API. Is the backend running on port 8000?");
+          setHint("Cannot reach the API.");
         }
       } finally {
         if (!cancelled) setChecking(false);
@@ -52,7 +51,6 @@ export default function GoogleSignInButton({
       <button
         type="button"
         onClick={() => {
-          // Drop any existing PersonalAIAssist session before Google OAuth
           clearTokens();
           window.location.href = `${API_BASE}/auth/google/login`;
         }}

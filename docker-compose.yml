@@ -64,6 +64,7 @@ services:
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       OAUTH_REDIRECT_BASE_URL: ${OAUTH_REDIRECT_BASE_URL:-http://localhost:8000}
       FRONTEND_OAUTH_SUCCESS_URL: ${FRONTEND_OAUTH_SUCCESS_URL:-http://localhost:3000/auth/callback}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000}
     # Single worker – SQLite cannot safely share writes across multiple uvicorn processes.
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
     depends_on:
@@ -115,13 +116,15 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+        NEXT_PUBLIC_API_URL: /api/v1
+        BACKEND_URL: http://backend:8000
     image: personalaiassist-frontend
     container_name: personalai-frontend
     ports:
       - "3000:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+      NEXT_PUBLIC_API_URL: /api/v1
+      BACKEND_URL: http://backend:8000
     depends_on:
       backend:
         condition: service_healthy

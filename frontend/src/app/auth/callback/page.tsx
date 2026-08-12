@@ -12,18 +12,21 @@ export default function OAuthCallbackPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    // Tokens must come from the URL hash only (not query) to avoid leaking via Referer/logs.
+    // Errors may arrive as ?error= from the backend redirect helper.
     const hash = typeof window !== "undefined" ? window.location.hash.replace(/^#/, "") : "";
     const query = typeof window !== "undefined" ? window.location.search.replace(/^\?/, "") : "";
-    const params = new URLSearchParams(hash || query);
+    const hashParams = new URLSearchParams(hash);
+    const queryParams = new URLSearchParams(query);
 
-    const err = params.get("error");
+    const err = queryParams.get("error") || hashParams.get("error");
     if (err) {
       setError(err);
       return;
     }
 
-    const access = params.get("access_token");
-    const refresh = params.get("refresh_token");
+    const access = hashParams.get("access_token");
+    const refresh = hashParams.get("refresh_token");
     if (!access || !refresh) {
       setError("Missing sign-in tokens. Please try Google sign-in again.");
       return;

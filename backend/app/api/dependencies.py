@@ -1,8 +1,8 @@
-"""Reusable FastAPI dependencies (auth, DB session, etc.)."""
+"""Reusable FastAPI dependencies (auth, DB session, rate limits, etc.)."""
 
 from __future__ import annotations
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,11 +11,13 @@ from app.core.security import decode_token
 from app.database.models import User
 from app.database.repositories.user_repo import UserRepository
 from app.database.session import get_db
+from app.security.rate_limiter import check_rate_limit
 
 _bearer = HTTPBearer(auto_error=True)
 
 
 async def get_current_user(
+    request: Request,
     creds: HTTPAuthorizationCredentials = Depends(_bearer),
     db: AsyncSession = Depends(get_db),
 ) -> User:
@@ -31,4 +33,14 @@ async def get_current_user(
     user = await repo.get_by_id(user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+    request.state.user = user
+    return user
+
+
+async def get_rate_limited_user(
+    request: Request,
+    user: User = Depends(get_current_user),
+) -> User:
+    """Authenticate then enforce per-user API rate limits."""
+    await check_rate_limit(request)
     return user
